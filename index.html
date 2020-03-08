@@ -458,19 +458,6 @@
             }
 
             window.addEventListener('load', () => {
-
-                let t = new ElementCollection()
-                t.add('a')
-                t.add('b')
-                t.add('c')
-                t.add('d')
-                t.forEach(e => {
-                    console.log(e)
-                    if (e === 'a') {
-                        t.remove('b')
-                    }
-                })
-
                 let game = new Game(document.getElementById('canvas'))
             })
 
