@@ -239,29 +239,62 @@
                 }
             }
 
+            class TiledVideoFrames {
+                constructor(src, rows, cols, fps) {
+                    this.im = new Image()
+                    this.im.src = src
+                    this.rows = rows
+                    this.cols = cols
+                    this.fps = fps
+                }
+                drawFrame(ctx, t, cx, cy, dw, dh) {
+                    let idx = Math.floor(t / (1 / this.fps))
+                    if (idx < this.cols * this.rows) {
+                        let w = this.im.naturalWidth / this.cols
+                        let h = this.im.naturalHeight / this.rows
+
+                        let x = Math.floor(idx % this.cols) * w
+                        let y = Math.floor(idx / this.cols) * h
+
+                        dh = dh || dw * (h / w)
+
+                        ctx.drawImage(this.im, x, y, w, h, cx - dw / 2, cy - dh / 2, dw, dh)
+                        return true
+                    } else {
+                        return false
+                    }
+                }
+            }
+
             class Explosion extends MovingElement {
                 constructor(elements) {
                     super(elements)
                     this.type = 'Explosion'
                     this.t0 = performance.now()
                     this.velocity.y = 75
+
+                    this.frames = new TiledVideoFrames('explosion4.png', 3, 5, 30.0)
                 }
                 render(ctx) {
 
                     let dt = (performance.now() - this.t0) * 0.001
 
-                    let tmp = 1 - dt / 1.2
+                    let tmp = 1 - dt / 0.9
                     tmp = Math.min(1, Math.max(0, tmp))
                     let ease = -(tmp * tmp * tmp * tmp - 1)
 
                     ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)'
-                    ctx.lineWidth = 8
-                    ctx.globalAlpha = 1 - ease
+                    ctx.lineWidth = 6
+                    ctx.globalAlpha = (1 - ease)
                     ctx.beginPath()
-                    ctx.arc(this.position.x, this.position.y, ease * 80, 0, Math.PI * 2)
+                    ctx.arc(this.position.x, this.position.y, ease * 70, 0, Math.PI * 2)
                     ctx.stroke()
 
-                    if (tmp <= 0) {
+                    ctx.globalAlpha = 1
+                    ctx.imageSmoothingEnabled = false
+                    let hasFrames = this.frames.drawFrame(ctx, dt, this.position.x, this.position.y, 110)
+
+                    if (tmp <= 0 && !hasFrames) {
                         this.elements.remove(this)
                     }
                 }
@@ -465,6 +498,6 @@
     </head>
 
     <body>
-        <canvas id='canvas' width='500' height='400' style='border: 1px solid black'></canvas>
+        <canvas id='canvas' width='600' height='400' style='border: 1px solid black'></canvas>
     </body>
 </html>
