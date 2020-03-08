@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+
+<html>
+
+    <head>
+        <title>Test</title>
+        <script>
+
+            'use strict'
+
+            class ElementCollection {
+                constructor() {
+                    this.list = []
+                }
+                add(el) {
+                    this.list.unshift(el)
+                }
+                remove(el) {
+                    let index = this.list.indexOf(el)
+                    if (index >= 0) {
+                        this.list.splice(index, 1)
+                        return true
+                    } else {
+                        return false
+                    }
+                }
+                forEach(callback) {
+                    let tmp = this.list.slice().reverse()
+                    tmp.forEach(callback)
+                }
+                size() {
+                    return this.list.length
+                }
+            }
+
+            class EventDispatcher {
+                constructor() {
+                    this.eventListeners = {}
+                }
+                dispatchEvent(name, data) {
+                    if (this.eventListeners.hasOwnProperty(name)) {
+                        this.eventListeners[name].forEach(callback => {
+                            callback({element: this, data: data})
+                        })
+                    }
+                }
+                addEventListener(name, callback) {
+                    if (!this.eventListeners.hasOwnProperty(name)) {
+                        this.eventListeners[name] = []
+                    }
+                    this.eventListeners[name].push(callback)
+                }
+                removeEventListener(name, callback) {
+                    if (this.eventListeners.hasOwnProperty(name)) {
+                        let index = this.eventListeners[name].indexOf(callback)
+                        if (index > 0) {
+                            this.eventListeners[name].splice(index, 1)
+                        }
+                    }
+                }
+            }
+
+            class Element extends EventDispatcher {
+                constructor(elements) {
+                    super()
+                    this.elements = elements
+                    this.position = {x: 0, y: 0}
+                    this.type = 'Element'
+                    this.id = Element.nextId++
+                }
+                size() {
+                    return {width: 0, height: 0}
+                }
+                rect() {
+                    let s = this.size()
+                    let p = this.position
+                    return {
+                        x: p.x - s.width / 2,
+                        y: p.y - s.height / 2,
+                        width: s.width,
+                        height: s.height,
+                        top: p.y - s.height / 2,
+                        left: p.x - s.width / 2,
+                        bottom: p.y + s.height / 2,
+                        right: p.x + s.width / 2
+                    }
+                }
+                render(ctx) { /* Implemented by inheritors */ }
+                prepare(bounds) { /* Implemented by inheritors */ }
+                collideWith(other) { /* Implemented by inheritors */ }
+            }
+            Element.nextId = 1
+
+            class MovingElement extends Element {
+                constructor(elements) {
+                    super(elements)
+                    this.velocity = {x: 0, y: 0}
+                    this.wasWithinBounds = false
+                    this.type = 'MovingElement'
+                }
+                prepare(bounds) {
+
+                    let now = performance.now()
+                    let dt = this.tLastPrepare ? (now - this.tLastPrepare) * 0.001 : 0
+                    this.tLastPrepare = now
+
+                    this.position.x += dt * this.velocity.x
+                    this.position.y += dt * this.velocity.y
+
+                    let size = this.size()
+                    let outOfBounds =
+                        this.position.x < -size.width * 0.5 ||
+                        this.position.x > bounds.width + size.width * 0.5 ||
+                        this.position.y < -size.height * 0.5 ||
+                        this.position.y > bounds.height + size.height * 0.5
+
+                    if (this.removeWhenOutOfBounds && outOfBounds && this.wasWithinBounds) {
+                        this.elements.remove(this)
+                    }
+
+                    this.wasWithinBounds = !outOfBounds
+                }
+            }
+
+            class Ship extends MovingElement {
+                constructor(elements) {
+                    super(elements)
+                    this.im = new Image()
+                    this.im.src = 'ship.png'
+                    this.shadow = new Image()
+                    this.shadow.src = 'ship_shadow.png'
+                    this.type = 'Ship'
+                }
+                size() {
+                    return {width: this.im.naturalWidth, height: this.im.naturalHeight}
+                }
+                prepare(bounds) {
+                    super.prepare(bounds )
+                    this.position.x = Math.max(Math.min(this.position.x, bounds.width), 0)
+                    this.position.y = Math.max(Math.min(this.position.y, bounds.height), 0)
+                }
+                render(ctx) {
+                    ctx.imageSmoothingEnabled = false
+
+                    ctx.drawImage(
+                        this.shadow,
+                        this.position.x - this.shadow.naturalWidth  * 0.5,
+                        this.position.y - this.shadow.naturalHeight * 0.5 + 64,
+                        this.shadow.width,
+                        this.shadow.height)
+
+                    ctx.drawImage(
+                        this.im,
+                        this.position.x - this.im.naturalWidth  * 0.5,
+                        this.position.y - this.im.naturalHeight * 0.5,
+                        this.im.width,
+                        this.im.height)
+                }
+                collideWith(other) {
+                    if (other.type === 'Enemy') {
+                        // TODO: Cause damage to ship
+                    }
+                }
+                fire() {
+                    let angles = [-15, 0, 15]
+                    let d2r = d => { return (d / 180) * Math.PI }
+                    let size = this.size()
+
+                    angles.forEach(angle => {
+                        let projectile = new Projectile(this.elements)
+                        projectile.position.x = this.position.x
+                        projectile.position.y = this.position.y - size.height / 2
+
+                        let t = d2r(angle - 90)
+                        let x = Math.cos(t)
+                        let y = Math.sin(t)
+
+                        const VELOCITY = 400
+                        projectile.velocity.x = x * VELOCITY
+                        projectile.velocity.y = y * VELOCITY
+                        projectile.removeWhenOutOfBounds = true
+
+                        this.elements.add(projectile)
+                    })
+                }
+            }
+
+            class Projectile extends MovingElement {
+                constructor(elements) {
+                    super(elements)
+                    this.im = new Image()
+                    this.im.src = 'projectile.png'
+                    this.type = 'Projectile'
+                }
+                size() {
+                    return { width: this.im.width, height: this.im.height }
+                }
+                render(ctx) {
+                    let angle = Math.atan2(this.velocity.x, this.velocity.y)
+                    ctx.translate(this.position.x, this.position.y)
+                    ctx.rotate(-angle)
+                    let size = this.size()
+                    ctx.imageSmoothingEnabled = false
+                    ctx.drawImage(this.im, -size.width * 0.5, -size.height * 0.5)
+                }
+                collideWith(other) {
+                    if (other.type === 'Enemy') {
+                        this.elements.remove(this)
+                    }
+                }
+            }
+
+            class Enemy extends MovingElement {
+                constructor(elements) {
+                    super(elements)
+                    this.energy = 3
+                    this.type = 'Enemy'
+                }
+                size() {
+                    return {width: 30, height: 50}
+                }
+                render(ctx) {
+                    let rect = this.rect()
+                    ctx.fillStyle = 'red'
+                    ctx.fillRect(rect.x, rect.y, rect.width, rect.height)
+                }
+                collideWith(other) {
+                    if (other.type === 'Projectile' || other.type === 'Ship') {
+                        this.energy--
+                        if (this.energy === 0) {
+                            this.elements.remove(this)
+
+                            let explosion = new Explosion(this.elements)
+                            explosion.position.x = this.position.x
+                            explosion.position.y = this.position.y
+                            this.elements.add(explosion)
+                        }
+                    }
+                }
+            }
+
+            class Explosion extends MovingElement {
+                constructor(elements) {
+                    super(elements)
+                    this.type = 'Explosion'
+                    this.t0 = performance.now()
+                    this.velocity.y = 75
+                }
+                render(ctx) {
+
+                    let dt = (performance.now() - this.t0) * 0.001
+
+                    let tmp = 1 - dt / 1.2
+                    tmp = Math.min(1, Math.max(0, tmp))
+                    let ease = -(tmp * tmp * tmp * tmp - 1)
+
+                    ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)'
+                    ctx.lineWidth = 8
+                    ctx.globalAlpha = 1 - ease
+                    ctx.beginPath()
+                    ctx.arc(this.position.x, this.position.y, ease * 80, 0, Math.PI * 2)
+                    ctx.stroke()
+
+                    if (tmp <= 0) {
+                        this.elements.remove(this)
+                    }
+                }
+            }
+
+            class Level extends MovingElement {
+                constructor(elements) {
+                    super(elements)
+                    this.velocity.y = 75
+                    this.im = new Image()
+                    this.im.src = 'level.png'
+                }
+                render(ctx, bounds) {
+
+                    let aspect = (this.im.naturalWidth / bounds.width)
+
+                    this.position.y %= this.im.naturalHeight / aspect
+
+                    let sx = 0
+                    let sy = this.im.naturalHeight - (this.position.y + bounds.height) * aspect
+                    let sw = this.im.naturalWidth
+                    let sh = bounds.height * aspect
+
+                    ctx.imageSmoothingEnabled = false
+                    do {
+                        ctx.drawImage(
+                            this.im,
+
+                            sx, sy,
+                            sw, sh,
+
+                            0, 0,
+                            bounds.width,
+                            bounds.height)
+
+                        sy += this.im.naturalHeight
+                    } while (sy < this.im.naturalHeight)
+                }
+            }
+
+            class Game {
+
+                constructor(cvs) {
+
+                    this.cvs = cvs
+                    this.elements = new ElementCollection()
+
+                    if (this.cvs.getAttribute('tabindex') === null) {
+                        this.cvs.setAttribute('tabindex', 0)
+                    }
+                    this.cvs.focus()
+                    this.initializeInput()
+
+                    // Add level
+                    let level = new Level()
+                    this.elements.add(level)
+
+                    // Add ship
+                    this.ship = new Ship(this.elements)
+                    this.ship.position.x = this.cvs.width * 0.5
+                    this.ship.position.y = this.cvs.height * 0.8
+                    this.elements.add(this.ship)
+
+                    // Add enemies
+                    setInterval(() => {
+                        let enemy = new Enemy(this.elements)
+                        enemy.position.y = -40
+                        enemy.position.x = this.cvs.width * Math.random()
+                        enemy.velocity.y = 150
+                        enemy.removeWhenOutOfBounds = true
+                        this.elements.add(enemy)
+                    }, 750)
+
+                    // Start rendering
+                    this.render()
+                }
+
+                initializeInput() {
+
+                    const KEY_LEFT = 37
+                    const KEY_UP = 38
+                    const KEY_RIGHT = 39
+                    const KEY_DOWN = 40
+                    const KEY_CTRL = 17
+                    const KEY_ALT = 18
+                    const KEY_SPACE = 32
+                    const VELOCITY = 300
+
+                    let pressed = new Set()
+
+                    this.cvs.addEventListener('keydown', e => {
+
+                        if (e.repeat) {
+                            return
+                        }
+
+                        pressed.add(e.keyCode)
+
+                        let preventDefault = true
+
+                        switch (e.keyCode) {
+                            case KEY_DOWN: this.ship.velocity.y = VELOCITY; break
+                            case KEY_UP: this.ship.velocity.y = -VELOCITY; break
+                            case KEY_RIGHT: this.ship.velocity.x = VELOCITY; break
+                            case KEY_LEFT: this.ship.velocity.x = -VELOCITY; break
+                            case KEY_SPACE: this.ship.fire(); break
+                            default: preventDefault = false; break
+                        }
+
+                        if (preventDefault) {
+                            e.preventDefault()
+                        }
+                    })
+
+                    this.cvs.addEventListener('keyup', e => {
+
+                        pressed.delete(e.keyCode)
+
+                        if (!pressed.has(KEY_DOWN) && !pressed.has(KEY_UP)) {
+                            this.ship.velocity.y = 0
+                        }
+                        else if (pressed.has(KEY_DOWN) && !pressed.has(KEY_UP)) {
+                            this.ship.velocity.y = VELOCITY
+                        }
+                        else if (!pressed.has(KEY_DOWN) && pressed.has(KEY_UP)) {
+                            this.ship.velocity.y = -VELOCITY
+                        }
+
+                        if (!pressed.has(KEY_LEFT) && !pressed.has(KEY_RIGHT)) {
+                            this.ship.velocity.x = 0;
+                        }
+                        else if (pressed.has(KEY_LEFT) && !pressed.has(KEY_RIGHT)) {
+                            this.ship.velocity.x = -VELOCITY
+                        }
+                        else if (!pressed.has(KEY_LEFT) && pressed.has(KEY_RIGHT)) {
+                            this.ship.velocity.x = VELOCITY
+                        }
+
+                        e.preventDefault()
+                    })
+                }
+
+                overlaps(r1, r2) {
+                    return !(r2.left > r1.right ||
+                            r2.right < r1.left ||
+                            r2.top > r1.bottom ||
+                            r2.bottom < r1.top)
+
+                }
+
+                render() {
+                    if (!this.renderPending) {
+                        this.renderPending = true
+                        window.requestAnimationFrame(() => {
+
+                            let ctx = this.cvs.getContext('2d')
+                            let bounds = {width: this.cvs.width, height: this.cvs.height}
+                            ctx.clearRect(0, 0, bounds.width, bounds.height)
+
+                            this.elements.forEach(element => {
+
+                                element.prepare(bounds)
+                                ctx.save()
+                                element.render(ctx, bounds)
+                                ctx.restore()
+
+                                //let rect = element.rect()
+                                //ctx.strokeStyle = 'rgb(0, 255, 0)'
+                                //ctx.strokeRect(rect.x, rect.y, rect.width, rect.height)
+
+                                let collisions = new Set()
+                                this.elements.forEach(el => {
+                                    if (el !== element) {
+                                        if (this.overlaps(el.rect(), element.rect())) {
+                                            let id0 = element.id
+                                            let id1 = el.id
+                                            let key = id0 < id1 ? id0 + '_' + id1 : id1 + '_' + id0
+                                            if (!collisions.has(key)) {
+                                                element.collideWith(el)
+                                                el.collideWith(element)
+                                                collisions.add(key)
+                                            }
+                                        }
+                                    }
+                                })
+
+                            })
+
+                            this.renderPending = false
+                            this.render()
+                        })
+                    }
+                }
+            }
+
+            window.addEventListener('load', () => {
+
+                let t = new ElementCollection()
+                t.add('a')
+                t.add('b')
+                t.add('c')
+                t.add('d')
+                t.forEach(e => {
+                    console.log(e)
+                    if (e === 'a') {
+                        t.remove('b')
+                    }
+                })
+
+                let game = new Game(document.getElementById('canvas'))
+            })
+
+        </script>
+    </head>
+
+    <body>
+        <canvas id='canvas' width='500' height='400' style='border: 1px solid black'></canvas>
+    </body>
+</html>
