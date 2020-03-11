@@ -33,6 +33,33 @@
                 }
             }
 
+            class TiledVideoFrames {
+                constructor(src, rows, cols, fps) {
+                    this.im = new Image()
+                    this.im.src = src
+                    this.rows = rows
+                    this.cols = cols
+                    this.fps = fps
+                }
+                drawFrame(ctx, t, cx, cy, dw, dh) {
+                    let idx = Math.floor(t / (1 / this.fps))
+                    if (idx < this.cols * this.rows) {
+                        let w = this.im.naturalWidth / this.cols
+                        let h = this.im.naturalHeight / this.rows
+
+                        let x = Math.floor(idx % this.cols) * w
+                        let y = Math.floor(idx / this.cols) * h
+
+                        dh = dh || dw * (h / w)
+
+                        ctx.drawImage(this.im, x, y, w, h, cx - dw / 2, cy - dh / 2, dw, dh)
+                        return true
+                    } else {
+                        return false
+                    }
+                }
+            }
+
             class EventDispatcher {
                 constructor() {
                     this.eventListeners = {}
@@ -185,6 +212,21 @@
                 }
             }
 
+            class HitExplosion extends MovingElement {
+                constructor(elements) {
+                    super(elements)
+                    this.type = 'HitExplosion'
+                    this.frames = new TiledVideoFrames('explosion2.png', 4, 4, 60.0)
+                    this.t0 = performance.now()
+                }
+                render(ctx) {
+                    let dt = (performance.now() - this.t0) * 0.001
+                    if (!this.frames.drawFrame(ctx, dt, this.position.x, this.position.y, 24)) {
+                        this.elements.remove(this)
+                    }
+                }
+            }
+
             class Projectile extends MovingElement {
                 constructor(elements) {
                     super(elements)
@@ -221,62 +263,41 @@
                 }
                 render(ctx) {
                     let rect = this.rect()
-                    ctx.fillStyle = 'red'
+                    let dt = this.t0 ? (performance.now() - this.t0) * 0.001 : Number.MAX_VALUE
+                    ctx.fillStyle = dt < 0.05 ? 'white' : 'red'
                     ctx.fillRect(rect.x, rect.y, rect.width, rect.height)
                 }
-                collideWith(other) {
+                collideWith(other, rect) {
                     if (other.type === 'Projectile' || other.type === 'Ship') {
                         this.energy--
                         if (this.energy === 0) {
                             this.elements.remove(this)
-
-                            let explosion = new Explosion(this.elements)
+                            let explosion = new KillExplosion(this.elements)
                             explosion.position.x = this.position.x
                             explosion.position.y = this.position.y
+                            this.elements.add(explosion)
+                        } else {
+                            this.t0 = performance.now()
+                            let explosion = new HitExplosion(this.elements)
+                            explosion.position.x = rect.x + rect.width * 0.5
+                            explosion.position.y = rect.y + rect.height * 0.5
+                            explosion.velocity.x = this.velocity.x
+                            explosion.velocity.y = this.velocity.y
                             this.elements.add(explosion)
                         }
                     }
                 }
             }
 
-            class TiledVideoFrames {
-                constructor(src, rows, cols, fps) {
-                    this.im = new Image()
-                    this.im.src = src
-                    this.rows = rows
-                    this.cols = cols
-                    this.fps = fps
-                }
-                drawFrame(ctx, t, cx, cy, dw, dh) {
-                    let idx = Math.floor(t / (1 / this.fps))
-                    if (idx < this.cols * this.rows) {
-                        let w = this.im.naturalWidth / this.cols
-                        let h = this.im.naturalHeight / this.rows
-
-                        let x = Math.floor(idx % this.cols) * w
-                        let y = Math.floor(idx / this.cols) * h
-
-                        dh = dh || dw * (h / w)
-
-                        ctx.drawImage(this.im, x, y, w, h, cx - dw / 2, cy - dh / 2, dw, dh)
-                        return true
-                    } else {
-                        return false
-                    }
-                }
-            }
-
-            class Explosion extends MovingElement {
+            class KillExplosion extends MovingElement {
                 constructor(elements) {
                     super(elements)
-                    this.type = 'Explosion'
+                    this.type = 'KillExplosion'
                     this.t0 = performance.now()
                     this.velocity.y = 75
-
                     this.frames = new TiledVideoFrames('explosion4.png', 3, 5, 30.0)
                 }
                 render(ctx) {
-
                     let dt = (performance.now() - this.t0) * 0.001
 
                     let tmp = 1 - dt / 0.9
@@ -445,6 +466,21 @@
 
                 }
 
+                getOverlap(r1, r2) {
+
+                    let x0 = Math.max(r1.x, r2.x)
+                    let y0 = Math.max(r1.y, r2.y)
+                    let x1 = Math.min(r1.right, r2.right)
+                    let y1 = Math.min(r1.bottom, r2.bottom)
+
+                    return {
+                        x: x0,
+                        y: y0,
+                        width: x1 - x0,
+                        height: y1 - y1
+                    }
+                }
+
                 render() {
                     if (!this.renderPending) {
                         this.renderPending = true
@@ -469,12 +505,14 @@
                                 this.elements.forEach(el => {
                                     if (el !== element) {
                                         if (this.overlaps(el.rect(), element.rect())) {
+
                                             let id0 = element.id
                                             let id1 = el.id
                                             let key = id0 < id1 ? id0 + '_' + id1 : id1 + '_' + id0
                                             if (!collisions.has(key)) {
-                                                element.collideWith(el)
-                                                el.collideWith(element)
+                                                let r = this.getOverlap(el.rect(), element.rect())
+                                                element.collideWith(el, r)
+                                                el.collideWith(element, r)
                                                 collisions.add(key)
                                             }
                                         }
